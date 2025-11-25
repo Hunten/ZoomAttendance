@@ -110,22 +110,27 @@ st.markdown("""
 # --- 4. UI PAGINI ---
 
 def show_landing_page():
-    # Background Gradient doar pe Landing Page
+    # Stiluri CSS
     st.markdown("""
     <style>
     .stApp {
         background: radial-gradient(circle at 50% 0%, #1e1b4b 0%, #020617 100%);
     }
+    .hero-title {
+        font-size: 3.5rem;
+        font-weight: 800;
+        background: -webkit-linear-gradient(45deg, #60a5fa, #a78bfa);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        margin-bottom: 1.5rem;
+    }
     </style>
     """, unsafe_allow_html=True)
-    
-    login_url = get_login_url()
     
     col1, col2 = st.columns([1, 1])
     
     with col1:
-        st.write("") # Spacer
-        st.write("")
+        st.write("") 
         st.write("")
         st.markdown('<h1 class="hero-title">Course Attendance<br>Simplified.</h1>', unsafe_allow_html=True)
         st.markdown("""
@@ -134,19 +139,18 @@ def show_landing_page():
         </p>
         """, unsafe_allow_html=True)
         
-        # Butonul "Sign in with Zoom" stilizat sa arate a Google/SSO friendly
-        st.markdown(f"""
-        <a href="{login_url}" target="_self" class="google-btn">
-            <img src="https://upload.wikimedia.org/wikipedia/commons/thumb/5/53/Google_%22G%22_Logo.svg/512px-Google_%22G%22_Logo.svg.png" width="20" height="20">
-            Sign in with Zoom (Google SSO supported)
-        </a>
+        # MODIFICARE: Folosim st.link_button (Nativ Streamlit)
+        # Aceasta componenta noua deschide garantat link-ul corect
+        login_url = get_login_url()
+        st.link_button("Sign in with Zoom (Google SSO)", login_url, type="primary", use_container_width=False)
+        
+        st.markdown("""
         <p style="margin-top: 15px; font-size: 0.85rem; color: #64748b;">
             🔒 Secure connection via Zoom OAuth 2.0
         </p>
         """, unsafe_allow_html=True)
 
     with col2:
-        # Mockup Vizual
         st.markdown("""
         <div style="margin-top: 40px; background: rgba(15, 23, 42, 0.6); border: 1px solid #334155; border-radius: 16px; padding: 24px; box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);">
             <div style="display: flex; justify-content: space-between; margin-bottom: 20px;">
@@ -157,12 +161,9 @@ def show_landing_page():
                 <span style="color: #cbd5e1;">Python Course</span>
                 <span style="background: #3730a3; color: #a5b4fc; padding: 4px 12px; border-radius: 20px; font-size: 0.8rem;">Syncing...</span>
             </div>
-            <div style="background: #1e293b; padding: 12px; border-radius: 8px; display: flex; justify-content: space-between; align-items: center;">
-                <span style="color: #cbd5e1;">Design Basics</span>
-                <span style="color: #94a3b8; font-size: 0.9rem;">24 Students</span>
-            </div>
         </div>
         """, unsafe_allow_html=True)
+
 
 def show_dashboard():
     st.title("📊 Dashboard")
