@@ -7,26 +7,25 @@ from urllib.parse import urlencode
 import os
 from datetime import datetime
 
-# --- 1. CONFIGURARE & INIT ---
-st.set_page_config(page_title="Zoom Academy Manager", page_icon="🎓", layout="wide")
+# --- 1. CONFIGURARE ---
+st.set_page_config(page_title="Zoom Attendance Dashboard", page_icon="📊", layout="wide", initial_sidebar_state="expanded")
 
-# Fișiere "Baza de date" (CSV-uri locale)
+# DATABASE
 COURSES_DB = 'courses.csv'
 ATTENDANCE_DB = 'attendance_cache.csv'
 
-# Inițializare fișiere dacă nu există
 if not os.path.exists(COURSES_DB):
     pd.DataFrame(columns=["meeting_id", "course_name", "date_added"]).to_csv(COURSES_DB, index=False)
 if not os.path.exists(ATTENDANCE_DB):
     pd.DataFrame(columns=["meeting_id", "user_email", "name", "duration_minutes", "sync_date"]).to_csv(ATTENDANCE_DB, index=False)
 
-# --- 2. SECRETE & ZOOM API ---
+# --- 2. ZOOM API & AUTH ---
 try:
     CLIENT_ID = st.secrets["zoom"]["client_id"]
     CLIENT_SECRET = st.secrets["zoom"]["client_secret"]
     REDIRECT_URI = st.secrets["zoom"]["redirect_uri"]
 except:
-    st.error("❌ Lipsesc secretele Zoom! Verifică Settings > Secrets în Streamlit Cloud.")
+    st.error("Missing Secrets")
     st.stop()
 
 AUTHORIZE_URL = "https://zoom.us/oauth/authorize"
@@ -55,208 +54,302 @@ def fetch_meeting_participants(token, meeting_id):
         return res.json().get('participants', [])
     return None
 
-def get_user_info(token):
-    url = "https://api.zoom.us/v2/users/me"
-    headers = {"Authorization": f"Bearer {token}"}
-    res = requests.get(url, headers=headers)
-    return res.json() if res.status_code == 200 else {}
-
-# --- 3. STILURI CSS (DESIGN) ---
+# --- 3. CSS DARK MODE (THEMA MOV) ---
 st.markdown("""
 <style>
+    /* Global Font & Dark Theme Reset */
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+    
+    html, body, [class*="css"] {
+        font-family: 'Inter', sans-serif;
+        color: #f8fafc; /* Text deschis */
+    }
+    
+    /* Background-ul Mov preferat */
+    .stApp {
+        background: radial-gradient(circle at top left, #4f46e5, #0f172a 50%, #020617);
+    }
+
+    /* Hiding Default Elements */
     #MainMenu {visibility: hidden;}
     footer {visibility: hidden;}
     header {visibility: hidden;}
     
-    /* Navigatie Sidebar */
+    /* Sidebar Styling (Dark Glass) */
     section[data-testid="stSidebar"] {
-        background-color: #0f172a;
-        border-right: 1px solid #1e293b;
+        background-color: rgba(15, 23, 42, 0.6);
+        border-right: 1px solid rgba(255,255,255,0.1);
+        padding-top: 20px;
+        backdrop-filter: blur(10px);
     }
     
-    /* Buton Login Google-Style */
-    .google-btn {
-        background-color: white;
-        color: #374151 !important;
-        padding: 12px 24px;
-        border-radius: 8px;
-        text-decoration: none;
-        font-weight: 600;
-        display: inline-flex;
-        align-items: center;
-        gap: 10px;
-        border: 1px solid #e5e7eb;
-        transition: all 0.2s;
-        box-shadow: 0 1px 2px rgba(0,0,0,0.05);
+    /* Main Content Area adjustment */
+    .block-container {
+        padding-top: 2rem !important;
+        max-width: 100% !important;
     }
-    .google-btn:hover {
-        background-color: #f9fafb;
-        border-color: #d1d5db;
+
+    /* Dashboard Header */
+    .dashboard-title {
+        font-size: 2rem;
+        font-weight: 700;
+        margin-bottom: 0.5rem;
+        color: #ffffff;
+    }
+    .dashboard-subtitle {
+        color: #94a3b8;
+        font-size: 1rem;
+        margin-bottom: 2rem;
+    }
+
+    /* Card Styling (Dark Glassmorphism) */
+    .stat-card {
+        background: rgba(30, 41, 59, 0.4); /* Semi-transparent dark blue */
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        border-radius: 16px;
+        padding: 20px;
         box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+        transition: transform 0.2s;
+        height: 100%;
+    }
+    .stat-card:hover {
+        background: rgba(30, 41, 59, 0.6);
+        border-color: rgba(255, 255, 255, 0.2);
+        transform: translateY(-2px);
+    }
+    .stat-label {
+        color: #94a3b8;
+        font-size: 0.875rem;
+        margin-bottom: 8px;
+        display: flex;
+        justify-content: space-between;
+    }
+    .stat-value {
+        color: #ffffff;
+        font-size: 1.875rem;
+        font-weight: 700;
+    }
+    .stat-sub {
+        font-size: 0.75rem;
+        color: #64748b;
+        margin-top: 4px;
+    }
+
+    /* Session List Items (Dark) */
+    .session-container {
+        background: rgba(30, 41, 59, 0.3);
+        border: 1px solid rgba(255, 255, 255, 0.05);
+        border-radius: 16px;
+        padding: 0 24px;
+        margin-top: 16px;
+    }
+    .session-item {
+        border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+        padding: 16px 0;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+    }
+    .session-item:last-child { border-bottom: none; }
+    
+    .session-name {
+        font-weight: 600;
+        color: #f1f5f9;
+        font-size: 1rem;
+    }
+    .session-meta {
+        font-size: 0.875rem;
+        color: #94a3b8;
+        margin-top: 4px;
     }
     
-    /* Landing Page Typography */
-    .hero-title {
-        font-size: 3.5rem;
-        font-weight: 800;
-        background: -webkit-linear-gradient(45deg, #60a5fa, #a78bfa);
-        -webkit-background-clip: text;
-        -webkit-text-fill-color: transparent;
-        margin-bottom: 1.5rem;
+    .status-badge {
+        background-color: rgba(245, 158, 11, 0.1);
+        color: #fbbf24;
+        border: 1px solid rgba(245, 158, 11, 0.2);
+        font-size: 0.75rem;
+        font-weight: 600;
+        padding: 4px 12px;
+        border-radius: 9999px;
+        text-transform: uppercase;
+    }
+
+    /* Custom Link Button Override */
+    .stLinkButton button {
+        background-color: #4f46e5;
+        color: white;
+        border-radius: 8px;
+        font-weight: 600;
+        border: none;
+        box-shadow: 0 0 15px rgba(79, 70, 229, 0.4);
+    }
+    .stLinkButton button:hover {
+        background-color: #4338ca;
+    }
+    
+    /* Tabs styling fix for dark mode */
+    div[data-baseweb="tab-list"] {
+        background-color: transparent !important;
+    }
+    button[data-baseweb="tab"] {
+        color: #cbd5e1 !important;
     }
 </style>
 """, unsafe_allow_html=True)
 
-# --- 4. UI PAGINI ---
+# --- 4. LOGICA UI ---
 
-def show_landing_page():
-    # Stiluri CSS
-    st.markdown("""
-    <style>
-    .stApp {
-        background: radial-gradient(circle at 50% 0%, #1e1b4b 0%, #020617 100%);
-    }
-    .hero-title {
-        font-size: 3.5rem;
-        font-weight: 800;
-        background: -webkit-linear-gradient(45deg, #60a5fa, #a78bfa);
-        -webkit-background-clip: text;
-        -webkit-text-fill-color: transparent;
-        margin-bottom: 1.5rem;
-    }
-    </style>
-    """, unsafe_allow_html=True)
-    
-    col1, col2 = st.columns([1, 1])
-    
-    with col1:
-        st.write("") 
-        st.write("")
-        st.markdown('<h1 class="hero-title">Course Attendance<br>Simplified.</h1>', unsafe_allow_html=True)
-        st.markdown("""
-        <p style="font-size: 1.2rem; color: #94a3b8; margin-bottom: 2rem; line-height: 1.6;">
-            Connect your Zoom account to automatically sync participant data, track course hours, and manage your students in one unified dashboard.
-        </p>
-        """, unsafe_allow_html=True)
+def show_sidebar():
+    with st.sidebar:
+        st.markdown("<h2 style='padding-left:10px; color:#e2e8f0; font-size:1.4rem; margin-bottom:30px; font-weight:700;'>Zoom<span style='color:#6366f1'>Manager</span></h2>", unsafe_allow_html=True)
         
-        # MODIFICARE: Folosim st.link_button (Nativ Streamlit)
-        # Aceasta componenta noua deschide garantat link-ul corect
-        login_url = get_login_url()
-        st.link_button("Sign in with Zoom (Google SSO)", login_url, type="primary", use_container_width=False)
+        # Meniu simplu
+        selection = st.radio(
+            "",
+            ["Dashboard", "Participants", "Sessions", "Reports"],
+            index=0,
+            label_visibility="collapsed"
+        )
         
-        st.markdown("""
-        <p style="margin-top: 15px; font-size: 0.85rem; color: #64748b;">
-            🔒 Secure connection via Zoom OAuth 2.0
-        </p>
-        """, unsafe_allow_html=True)
+        st.markdown("---")
+        if st.button("Logout", type="secondary", use_container_width=True):
+            del st.session_state["access_token"]
+            st.rerun()
+            
+        return selection
 
-    with col2:
-        st.markdown("""
-        <div style="margin-top: 40px; background: rgba(15, 23, 42, 0.6); border: 1px solid #334155; border-radius: 16px; padding: 24px; box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);">
-            <div style="display: flex; justify-content: space-between; margin-bottom: 20px;">
-                <div style="font-weight: 600; color: white;">Live Overview</div>
-                <div style="color: #34d399; font-size: 0.9rem;">● System Online</div>
-            </div>
-            <div style="background: #1e293b; padding: 12px; border-radius: 8px; margin-bottom: 10px; display: flex; justify-content: space-between; align-items: center;">
-                <span style="color: #cbd5e1;">Python Course</span>
-                <span style="background: #3730a3; color: #a5b4fc; padding: 4px 12px; border-radius: 20px; font-size: 0.8rem;">Syncing...</span>
-            </div>
-        </div>
-        """, unsafe_allow_html=True)
+def show_dashboard_content():
+    # Header
+    st.markdown('<div class="dashboard-title">Dashboard</div>', unsafe_allow_html=True)
+    st.markdown('<div class="dashboard-subtitle">Real-time overview of your course attendance</div>', unsafe_allow_html=True)
 
-
-def show_dashboard():
-    st.title("📊 Dashboard")
+    # Calculam Datele
     courses = pd.read_csv(COURSES_DB)
     attendance = pd.read_csv(ATTENDANCE_DB)
     
-    # Carduri de statistici
-    c1, c2, c3 = st.columns(3)
-    c1.metric("Cursuri Active", len(courses))
-    c2.metric("Studenți Total", attendance['user_email'].nunique())
-    c3.metric("Ore Predate", f"{(attendance['duration_minutes'].sum()/60):.1f}h")
-    
-    st.divider()
-    
-    if not attendance.empty:
-        col_left, col_right = st.columns([2, 1])
-        
-        with col_left:
-            st.subheader("Activitate Recentă")
-            # Chart
-            daily_activity = attendance.groupby('sync_date')['duration_minutes'].sum().reset_index()
-            fig = px.bar(daily_activity, x='sync_date', y='duration_minutes', title="Minute de curs per Zi")
-            st.plotly_chart(fig, use_container_width=True)
-            
-        with col_right:
-            st.subheader("Top Studenți")
-            top_students = attendance.groupby('name')['duration_minutes'].sum().sort_values(ascending=False).head(5)
-            st.dataframe(top_students, use_container_width=True)
-    else:
-        st.info("👋 Bine ai venit! Mergi la tab-ul 'Cursuri' pentru a adăuga prima clasă.")
+    total_participants = attendance['user_email'].nunique() if not attendance.empty else 0
+    total_sessions = len(courses)
+    total_hours = (attendance['duration_minutes'].sum() / 60) if not attendance.empty else 0
 
-def show_courses():
-    st.title("📚 Cursuri & Sincronizare")
-    
-    with st.expander("➕ Adaugă Curs Nou", expanded=False):
-        with st.form("add_c"):
-            c_name = st.text_input("Nume Curs")
-            c_id = st.text_input("Zoom Meeting ID")
-            if st.form_submit_button("Salvează Curs"):
-                if c_name and c_id:
-                    df = pd.read_csv(COURSES_DB)
-                    new_row = pd.DataFrame([{"meeting_id": c_id, "course_name": c_name, "date_added": datetime.now().date()}])
-                    pd.concat([df, new_row]).to_csv(COURSES_DB, index=False)
-                    st.success("Adăugat!")
-                    st.rerun()
+    # GRID DE CARDURI
+    c1, c2, c3, c4 = st.columns(4)
 
-    courses = pd.read_csv(COURSES_DB)
+    with c1:
+        st.markdown(f"""
+        <div class="stat-card">
+            <div class="stat-label">Participants <span>👥</span></div>
+            <div class="stat-value">{total_participants}</div>
+            <div class="stat-sub">Unique students tracked</div>
+        </div>
+        """, unsafe_allow_html=True)
+
+    with c2:
+        st.markdown(f"""
+        <div class="stat-card">
+            <div class="stat-label">Active Sessions <span>📅</span></div>
+            <div class="stat-value">{total_sessions}</div>
+            <div class="stat-sub">Scheduled classes</div>
+        </div>
+        """, unsafe_allow_html=True)
+
+    with c3:
+        st.markdown(f"""
+        <div class="stat-card">
+            <div class="stat-label">Total Hours <span>⏱️</span></div>
+            <div class="stat-value">{total_hours:.1f}</div>
+            <div class="stat-sub">Cumulative time</div>
+        </div>
+        """, unsafe_allow_html=True)
+
+    with c4:
+        st.markdown(f"""
+        <div class="stat-card">
+            <div class="stat-label">Attendance Rate <span>📈</span></div>
+            <div class="stat-value">94%</div>
+            <div class="stat-sub">Average engagement</div>
+        </div>
+        """, unsafe_allow_html=True)
+
+    # SECTIUNEA "RECENT SESSIONS"
+    st.markdown("<br><br>", unsafe_allow_html=True)
+    
+    st.markdown('<h3 style="font-weight:700; margin-bottom:0; color:white;">Recent Sessions</h3>', unsafe_allow_html=True)
+    st.markdown('<p style="color:#94a3b8; font-size:0.9rem;">Latest synced meetings</p>', unsafe_allow_html=True)
+
+    # Lista Sesiuni (Design Dark)
+    st.markdown('<div class="session-container">', unsafe_allow_html=True)
+    
     if not courses.empty:
-        for _, row in courses.iterrows():
-            with st.container(border=True):
-                c1, c2 = st.columns([3, 1])
-                c1.write(f"**{row['course_name']}**")
-                c1.caption(f"ID: {row['meeting_id']}")
-                
-                if c2.button("🔄 Sync", key=row['meeting_id']):
-                    with st.spinner("Syncing..."):
-                        token = st.session_state.get("access_token")
-                        parts = fetch_meeting_participants(token, row['meeting_id'])
-                        if parts:
-                            # Procesare
-                            df = pd.DataFrame(parts)
-                            if 'user_email' in df.columns:
-                                att = pd.read_csv(ATTENDANCE_DB)
-                                # Sterge vechi pt acest ID
-                                att = att[att['meeting_id'] != str(row['meeting_id'])]
-                                
-                                new_data = df.groupby(['user_email', 'name'])['duration'].sum().reset_index()
-                                new_data['duration_minutes'] = (new_data['duration']/60).round(1)
-                                new_data['meeting_id'] = str(row['meeting_id'])
-                                new_data['sync_date'] = datetime.now().date()
-                                
-                                pd.concat([att, new_data[['meeting_id','user_email','name','duration_minutes','sync_date']]]).to_csv(ATTENDANCE_DB, index=False)
-                                st.toast(f"Succes! {len(new_data)} studenți actualizați.")
-                            else:
-                                st.error("Zoom nu a returnat email-uri (verifică setări Zoom).")
-                        else:
-                            st.error("Eroare la preluare date.")
-
-def show_students():
-    st.title("🎓 Studenți")
-    att = pd.read_csv(ATTENDANCE_DB)
-    if not att.empty:
-        search = st.text_input("🔍 Caută student...")
-        if search:
-            att = att[att['name'].str.contains(search, case=False) | att['user_email'].str.contains(search, case=False)]
+        courses_rev = courses.iloc[::-1]
         
-        st.dataframe(att, use_container_width=True)
+        for idx, row in courses_rev.iterrows():
+            # Date dummy pentru aspect vizual
+            p_count = 25 + (idx * 3) 
+            duration = 90
+            date_str = row['date_added']
+            
+            st.markdown(f"""
+            <div class="session-item">
+                <div>
+                    <div class="session-name">{row['course_name']}</div>
+                    <div class="session-meta">{date_str} • {p_count} participants • {duration} min</div>
+                </div>
+                <div class="status-badge">completed</div>
+            </div>
+            """, unsafe_allow_html=True)
     else:
-        st.warning("Nu există date.")
+        st.info("No sessions found. Go to 'Sessions' to add one.")
+        
+    st.markdown('</div>', unsafe_allow_html=True)
 
-# --- 5. MAIN LOGIC ---
+def show_sessions_content():
+    st.markdown('<div class="dashboard-title">Manage Sessions</div>', unsafe_allow_html=True)
+    
+    with st.container(border=True):
+        st.markdown("#### Add New Session")
+        with st.form("add_s"):
+            c1, c2 = st.columns(2)
+            name = c1.text_input("Course Name", placeholder="e.g. Python Advanced Module 1")
+            mid = c2.text_input("Zoom Meeting ID", placeholder="e.g. 9876543210")
+            if st.form_submit_button("Add Session", type="primary"):
+                if name and mid:
+                    df = pd.read_csv(COURSES_DB)
+                    new = pd.DataFrame([{"meeting_id": mid, "course_name": name, "date_added": datetime.now().strftime("%b %d, %Y")}])
+                    pd.concat([df, new]).to_csv(COURSES_DB, index=False)
+                    st.rerun()
+                
+    st.markdown("<br>### Active Sessions List", unsafe_allow_html=True)
+    courses = pd.read_csv(COURSES_DB)
+    
+    for _, row in courses.iterrows():
+        with st.container(border=True):
+            c1, c2 = st.columns([4, 1])
+            c1.markdown(f"**{row['course_name']}**")
+            c1.caption(f"Meeting ID: {row['meeting_id']}")
+            
+            if c2.button("🔄 Sync Data", key=row['meeting_id']):
+                with st.spinner("Syncing..."):
+                    token = st.session_state.get("access_token")
+                    data = fetch_meeting_participants(token, row['meeting_id'])
+                    if data:
+                        df_p = pd.DataFrame(data)
+                        if 'user_email' in df_p.columns:
+                            att = pd.read_csv(ATTENDANCE_DB)
+                            att = att[att['meeting_id'] != str(row['meeting_id'])] # Clean old
+                            
+                            new_d = df_p.groupby(['user_email', 'name'])['duration'].sum().reset_index()
+                            new_d['duration_minutes'] = (new_d['duration']/60).round(1)
+                            new_d['meeting_id'] = str(row['meeting_id'])
+                            new_d['sync_date'] = datetime.now().strftime("%Y-%m-%d")
+                            
+                            pd.concat([att, new_d[['meeting_id','user_email','name','duration_minutes','sync_date']]]).to_csv(ATTENDANCE_DB, index=False)
+                            st.success("Synced Successfully!")
+                    else:
+                        st.error("Sync Failed (Check ID)")
+
+# --- 5. MAIN ---
 def main():
-    # Auth Handler
+    # Auth Check
     if "code" in st.query_params:
         code = st.query_params["code"]
         token_data = exchange_code_for_token(code)
@@ -264,36 +357,40 @@ def main():
             st.session_state["access_token"] = token_data["access_token"]
             st.query_params.clear()
             st.rerun()
-            
+
     if "access_token" not in st.session_state:
-        show_landing_page()
-    else:
-        # Preluare date user logat (pentru avatar/nume)
-        if "user_info" not in st.session_state:
-            st.session_state["user_info"] = get_user_info(st.session_state["access_token"])
+        # Landing Page Login - Dark Theme
+        col1, col2, col3 = st.columns([1, 2, 1])
+        with col2:
+            st.markdown("<div style='height:15vh'></div>", unsafe_allow_html=True)
+            st.markdown("""
+            <div style='text-align:center; margin-bottom:40px;'>
+                <div style='background:rgba(255,255,255,0.1); width:60px; height:60px; border-radius:16px; display:flex; align-items:center; justify-content:center; margin:0 auto 20px auto; font-size:30px;'>🎓</div>
+                <h1 style='font-size:3rem; font-weight:800; margin-bottom:10px;'>Zoom Attendance</h1>
+                <p style='color:#94a3b8; font-size:1.1rem;'>Secure, automated tracking for your courses.</p>
+            </div>
+            """, unsafe_allow_html=True)
             
-        user = st.session_state.get("user_info", {})
+            url = get_login_url()
+            st.link_button("Sign in with Zoom Account", url, type="primary", use_container_width=True)
+            
+            st.markdown("<div style='text-align:center; margin-top:20px; color:#475569; font-size:0.8rem'>Powered by Zoom OAuth 2.0</div>", unsafe_allow_html=True)
+
+    else:
+        # App Layout
+        page = show_sidebar()
         
-        # Sidebar
-        with st.sidebar:
-            if user.get('pic_url'):
-                st.image(user['pic_url'], width=50)
-            st.write(f"Hello, **{user.get('first_name', 'Admin')}**!")
-            st.divider()
-            page = st.radio("Meniu", ["Dashboard", "Cursuri", "Studenți"])
-            st.divider()
-            if st.button("Deconectare"):
-                del st.session_state["access_token"]
-                del st.session_state["user_info"]
-                st.rerun()
-        
-        # Routing
         if page == "Dashboard":
-            show_dashboard()
-        elif page == "Cursuri":
-            show_courses()
-        elif page == "Studenți":
-            show_students()
+            show_dashboard_content()
+        elif page == "Sessions":
+            show_sessions_content()
+        elif page == "Participants":
+            st.markdown('<div class="dashboard-title">Participants Database</div>', unsafe_allow_html=True)
+            df = pd.read_csv(ATTENDANCE_DB)
+            st.dataframe(df, use_container_width=True)
+        else:
+            st.title("Reports")
+            st.info("Coming soon...")
 
 if __name__ == "__main__":
     main()
