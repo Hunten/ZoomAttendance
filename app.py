@@ -1,27 +1,40 @@
 import streamlit as st
-import pandas as pd
 import requests
-import time
-from datetime import datetime
-import plotly.express as px
+import pandas as pd
 import base64
+import plotly.express as px
+from urllib.parse import urlencode
 
-# --- CONFIGURATION & AUTHENTICATION ---
-ST_PASSWORD = "admin"  # Change this to your desired login password
+# --- CONFIGURATION ---
+st.set_page_config(page_title="Zoom Attendance Manager", page_icon="🎓", layout="wide")
 
-# Page Config
-st.set_page_config(
-    page_title="Zoom Attendance Tracker",
-    page_icon="📊",
-    layout="wide"
-)
+# Load secrets securely
+try:
+    CLIENT_ID = st.secrets["zoom"]["client_id"]
+    CLIENT_SECRET = st.secrets["zoom"]["client_secret"]
+    REDIRECT_URI = st.secrets["zoom"]["redirect_uri"]
+except FileNotFoundError:
+    st.error("❌ Secrets file not found. Please create .streamlit/secrets.toml")
+    st.stop()
 
-# --- ZOOM API FUNCTIONS ---
+# Zoom OAuth Endpoints
+AUTHORIZE_URL = "https://zoom.us/oauth/authorize"
+TOKEN_URL = "https://zoom.us/oauth/token"
 
-def get_zoom_access_token(account_id, client_id, client_secret):
-    """Exchanges credentials for a temporary access token."""
-    url = "https://zoom.us/oauth/token"
-    auth_string = f"{client_id}:{client_secret}"
+# --- AUTHENTICATION FUNCTIONS ---
+
+def get_login_url():
+    """Generates the Zoom Login URL."""
+    params = {
+        "response_type": "code",
+        "client_id": CLIENT_ID,
+        "redirect_uri": REDIRECT_URI
+    }
+    return f"{AUTHORIZE_URL}?{urlencode(params)}"
+
+def exchange_code_for_token(auth_code):
+    """Exchanges the authorization code for an access token."""
+    auth_string = f"{CLIENT_ID}:{CLIENT_SECRET}"
     b64_auth = base64.b64encode(auth_string.encode()).decode()
     
     headers = {
@@ -29,218 +42,152 @@ def get_zoom_access_token(account_id, client_id, client_secret):
         "Content-Type": "application/x-www-form-urlencoded"
     }
     params = {
-        "grant_type": "account_credentials",
-        "account_id": account_id
+        "grant_type": "authorization_code",
+        "code": auth_code,
+        "redirect_uri": REDIRECT_URI
     }
     
-    try:
-        response = requests.post(url, headers=headers, params=params)
-        response.raise_for_status()
-        return response.json().get("access_token")
-    except Exception as e:
-        st.error(f"Authentication Failed: {str(e)}")
-        return None
+    response = requests.post(TOKEN_URL, headers=headers, params=params)
+    return response.json()
 
-def get_past_meeting_participants(token, meeting_id):
-    """Fetches participants from a finished meeting (Reports API)."""
-    # This endpoint returns the most accurate 'duration' data for past meetings
+def get_current_user(token):
+    """Fetches the logged-in user's profile."""
+    url = "https://api.zoom.us/v2/users/me"
+    headers = {"Authorization": f"Bearer {token}"}
+    response = requests.get(url, headers=headers)
+    return response.json() if response.status_code == 200 else None
+
+def get_attendance_report(token, meeting_id):
+    """Fetches past meeting participants."""
     url = f"https://api.zoom.us/v2/report/meetings/{meeting_id}/participants"
     headers = {"Authorization": f"Bearer {token}"}
-    params = {"page_size": 300} # Max page size
+    params = {"page_size": 300}
     
-    all_participants = []
-    
-    while True:
-        res = requests.get(url, headers=headers, params=params)
-        if res.status_code != 200:
-            return None, res.text
-            
-        data = res.json()
-        all_participants.extend(data.get('participants', []))
-        
-        if 'next_page_token' in data and data['next_page_token']:
-            params['next_page_token'] = data['next_page_token']
-        else:
-            break
-            
-    return all_participants, None
-
-def get_live_meeting_metrics(token, meeting_id):
-    """Fetches real-time participants (Dashboard API)."""
-    # Note: Requires Business/Education plan usually
-    url = f"https://api.zoom.us/v2/metrics/meetings/{meeting_id}/participants"
-    headers = {"Authorization": f"Bearer {token}"}
-    params = {"type": "live", "page_size": 300}
-    
-    res = requests.get(url, headers=headers, params=params)
-    if res.status_code == 200:
-        return res.json().get('participants', []), None
+    response = requests.get(url, headers=headers, params=params)
+    if response.status_code == 200:
+        return response.json().get('participants', []), None
     else:
-        return None, res.text
+        return None, response.text
 
-# --- UI HELPERS ---
-
-def check_password():
-    """Simple security check."""
-    if "authenticated" not in st.session_state:
-        st.session_state.authenticated = False
-        
-    if not st.session_state.authenticated:
-        st.markdown("### 🔒 Secure Access")
-        pwd = st.text_input("Enter Access Password", type="password")
-        if st.button("Login"):
-            if pwd == ST_PASSWORD:
-                st.session_state.authenticated = True
-                st.rerun()
-            else:
-                st.error("Incorrect password")
-        return False
-    return True
-
-def convert_df_to_csv(df):
-    return df.to_csv(index=False).encode('utf-8')
-
-# --- MAIN APPLICATION ---
+# --- UI & LOGIC ---
 
 def main():
-    if not check_password():
-        return
-
-    # Sidebar: Credentials
-    st.sidebar.header("⚙️ Zoom Settings")
-    
-    # Use secrets if available, otherwise inputs
-    account_id = st.sidebar.text_input("Account ID", type="password", help="From Zoom App Marketplace")
-    client_id = st.sidebar.text_input("Client ID", type="password")
-    client_secret = st.sidebar.text_input("Client Secret", type="password")
-    
-    if not (account_id and client_id and client_secret):
-        st.info("👈 Please enter your Zoom App Credentials in the sidebar to start.")
-        st.markdown("""
-        ### How to get credentials:
-        1. Go to [Zoom App Marketplace](https://marketplace.zoom.us/)
-        2. Create a **Server-to-Server OAuth** app.
-        3. Copy Account ID, Client ID, and Client Secret.
-        4. Add Scopes: `report:read:admin`, `dashboard:read:admin`.
-        """)
-        return
-
-    # Authenticate
-    if "zoom_token" not in st.session_state:
-        if st.sidebar.button("Connect to Zoom"):
-            token = get_zoom_access_token(account_id, client_id, client_secret)
-            if token:
-                st.session_state.zoom_token = token
-                st.sidebar.success("Connected!")
-                time.sleep(1)
+    # 1. Check if we have an auth code in the URL (returned from Zoom)
+    if "code" in st.query_params:
+        auth_code = st.query_params["code"]
+        with st.spinner("Logging you in..."):
+            token_data = exchange_code_for_token(auth_code)
+            
+            if "access_token" in token_data:
+                st.session_state["access_token"] = token_data["access_token"]
+                # Clear URL parameters to prevent re-submission
+                st.query_params.clear()
                 st.rerun()
-    
-    if "zoom_token" in st.session_state:
-        st.sidebar.success("✅ Zoom Connected")
-        if st.sidebar.button("Disconnect"):
-            del st.session_state.zoom_token
-            st.rerun()
+            else:
+                st.error("Login failed. Please try again.")
+                st.json(token_data)
 
-        token = st.session_state.zoom_token
+    # 2. Main Interface
+    if "access_token" not in st.session_state:
+        # --- LOGIN SCREEN ---
+        st.markdown("<div style='text-align: center; padding-top: 50px;'>", unsafe_allow_html=True)
+        st.title("🎓 Course Attendance Tracker")
+        st.write("Please sign in to access your Zoom reports.")
+        
+        # Login Button
+        login_url = get_login_url()
+        st.markdown(f"""
+            <a href="{login_url}" target="_self">
+                <button style="
+                    background-color: #2D8CFF; 
+                    color: white; 
+                    padding: 12px 24px; 
+                    border: none; 
+                    border-radius: 8px; 
+                    font-size: 16px; 
+                    cursor: pointer; 
+                    font-weight: bold;">
+                    Login with Zoom
+                </button>
+            </a>
+        """, unsafe_allow_html=True)
+        
+        st.info("🔒 Your credentials are secure. We only access read-only attendance data.")
+        st.markdown("</div>", unsafe_allow_html=True)
+        
+    else:
+        # --- DASHBOARD SCREEN ---
+        token = st.session_state["access_token"]
+        user_profile = get_current_user(token)
+        
+        # Sidebar
+        with st.sidebar:
+            if user_profile:
+                # Use 'get' with a default fallback for the profile picture
+                pic_url = user_profile.get('pic_url', 'https://via.placeholder.com/150')
+                st.image(pic_url, width=50)
+                st.write(f"**Logged in as:** {user_profile.get('first_name')} {user_profile.get('last_name')}")
+                
+            if st.button("Logout"):
+                del st.session_state["access_token"]
+                st.rerun()
 
-        # Tabs
-        tab1, tab2 = st.tabs(["📊 Comprehensive Reports (Past)", "🔴 Real-time Dashboard (Live)"])
+        st.title("📊 Attendance Dashboard")
 
-        # --- TAB 1: PAST REPORTS ---
-        with tab1:
-            st.markdown("### Session Tracking & Reports")
-            st.markdown("Analyze attendance for finished sessions.")
-            
-            col1, col2 = st.columns([3, 1])
-            with col1:
-                meeting_id_input = st.text_input("Enter Meeting ID (Past Session)", placeholder="e.g., 123456789")
-            with col2:
-                st.write("") # spacer
-                st.write("")
-                fetch_btn = st.button("Generate Report", type="primary")
+        # Input for Meeting ID
+        st.write("Enter the Meeting ID of a **finished** course session to generate a report.")
+        meeting_id = st.text_input("Meeting ID", placeholder="e.g., 8642219000")
 
-            if fetch_btn and meeting_id_input:
-                with st.spinner("Fetching attendance data from Zoom..."):
-                    participants, error = get_past_meeting_participants(token, meeting_id_input)
+        if meeting_id and st.button("Fetch Attendance"):
+            with st.spinner("Pulling data from Zoom..."):
+                participants, error = get_attendance_report(token, meeting_id)
+
+                if participants:
+                    # Process Data
+                    df = pd.DataFrame(participants)
                     
-                    if error:
-                        st.error(f"Error fetching data: {error}")
-                    elif not participants:
-                        st.warning("No participants found or meeting ID invalid.")
+                    # Handle duration (summing multiple joins for same email)
+                    if 'user_email' in df.columns and 'duration' in df.columns:
+                        summary = df.groupby(['user_email', 'name']).agg({
+                            'duration': 'sum',
+                            'join_time': 'min',
+                            'leave_time': 'max'
+                        }).reset_index()
+                        
+                        summary['duration_minutes'] = (summary['duration'] / 60).round(1)
+                        summary = summary.sort_values('duration_minutes', ascending=False)
+
+                        # Metrics
+                        c1, c2, c3 = st.columns(3)
+                        c1.metric("Total Students", len(summary))
+                        c1.caption("Unique participants")
+                        
+                        avg_time = summary['duration_minutes'].mean()
+                        c2.metric("Avg. Duration", f"{avg_time:.1f} min")
+                        
+                        # Charts
+                        fig = px.bar(summary.head(10), x='name', y='duration_minutes',
+                                     title="Top Attendance Duration",
+                                     labels={'duration_minutes': 'Minutes', 'name': 'Student'})
+                        st.plotly_chart(fig, use_container_width=True)
+
+                        # Table
+                        st.dataframe(summary, use_container_width=True)
+
+                        # CSV Download
+                        csv = summary.to_csv(index=False).encode('utf-8')
+                        st.download_button(
+                            "📥 Download CSV Report",
+                            csv,
+                            f"attendance_{meeting_id}.csv",
+                            "text/csv"
+                        )
                     else:
-                        # Process Data
-                        df = pd.DataFrame(participants)
-                        
-                        # Clean and Calculate
-                        if 'duration' in df.columns:
-                            # Group by user_email to handle re-joins (sum duration)
-                            summary_df = df.groupby(['user_email', 'name']).agg({
-                                'duration': 'sum',
-                                'join_time': 'min',
-                                'leave_time': 'max'
-                            }).reset_index()
-                            
-                            summary_df['duration_minutes'] = (summary_df['duration'] / 60).round(1)
-                            summary_df = summary_df.sort_values('duration_minutes', ascending=False)
-
-                            # Metrics
-                            st.markdown("---")
-                            m1, m2, m3 = st.columns(3)
-                            m1.metric("Total Participants", len(summary_df))
-                            m2.metric("Avg. Duration", f"{summary_df['duration_minutes'].mean():.1f} min")
-                            m3.metric("Top Attendee", summary_df.iloc[0]['name'])
-
-                            # Chart
-                            st.subheader("Engagement Overview")
-                            fig = px.bar(summary_df.head(10), x='name', y='duration_minutes', 
-                                        title="Top 10 Participants by Duration",
-                                        labels={'duration_minutes': 'Minutes Attended', 'name': 'Participant'})
-                            st.plotly_chart(fig, use_container_width=True)
-
-                            # Data Table
-                            st.subheader("Detailed Attendance Log")
-                            st.dataframe(summary_df, use_container_width=True)
-
-                            # Export
-                            csv = convert_df_to_csv(summary_df)
-                            st.download_button(
-                                label="📥 Export to CSV",
-                                data=csv,
-                                file_name=f"attendance_report_{meeting_id_input}.csv",
-                                mime="text/csv"
-                            )
-                        else:
-                            st.warning("Duration data not available in this report type.")
-
-        # --- TAB 2: LIVE DASHBOARD ---
-        with tab2:
-            st.markdown("### 🔴 Real-time Monitoring")
-            st.markdown("Monitor active sessions currently in progress.")
-            
-            live_id_input = st.text_input("Enter Live Meeting ID", placeholder="e.g., 987654321")
-            
-            if st.button("Sync Live Data"):
-                with st.spinner("Syncing with Zoom..."):
-                    live_participants, error = get_live_meeting_metrics(token, live_id_input)
-                    
-                    if error:
-                        st.error(f"Could not fetch live metrics. Note: Requires Zoom Business/Edu plan. Error: {error}")
-                    elif not live_participants:
-                        st.info("Meeting is not currently live or has no participants.")
-                    else:
-                        live_df = pd.DataFrame(live_participants)
-                        
-                        # Live Metrics
-                        st.success(f"Sync Successful: {datetime.now().strftime('%H:%M:%S')}")
-                        
-                        k1, k2, k3 = st.columns(3)
-                        k1.metric("Current Participants", len(live_df))
-                        # Assuming 'device' or 'ip_address' fields exist in live metrics
-                        if 'device' in live_df.columns:
-                            mobile_users = live_df[live_df['device'].str.contains('Phone|Android|iOS', case=False, na=False)].shape[0]
-                            k2.metric("Mobile Users", mobile_users)
-                        
-                        st.dataframe(live_df, use_container_width=True)
+                        st.warning("Participant emails or duration data missing. Check your Zoom plan permissions.")
+                elif error:
+                    st.error(f"Error: {error}")
+                else:
+                    st.info("No participants found for this ID.")
 
 if __name__ == "__main__":
     main()
