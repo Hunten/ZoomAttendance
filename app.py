@@ -8,13 +8,86 @@ from urllib.parse import urlencode
 # --- CONFIGURATION ---
 st.set_page_config(page_title="Zoom Attendance Manager", page_icon="🎓", layout="wide")
 
-# Ascunde elementele standard Streamlit
+# --- CSS PENTRU FULL SCREEN & DESIGN MODERN ---
+# Acesta repara aspectul "rau" eliminand padding-ul standard Streamlit si setand fundalul corect
 st.markdown("""
 <style>
+    /* Ascunde elementele default Streamlit */
     #MainMenu {visibility: hidden;}
     footer {visibility: hidden;}
     header {visibility: hidden;}
-    .block-container {padding-top: 0px; padding-bottom: 0px; padding-left: 0px; padding-right: 0px; max-width: 100%;}
+    
+    /* Elimina spatiile albe de pe margini */
+    .block-container {
+        padding-top: 0rem !important;
+        padding-bottom: 0rem !important;
+        padding-left: 0rem !important;
+        padding-right: 0rem !important;
+        max-width: 100% !important;
+    }
+    
+    /* Fundalul intregii pagini */
+    .stApp {
+        background: radial-gradient(circle at top left, #4f46e5, #0f172a 50%, #020617);
+        color: white;
+    }
+    
+    /* Stiluri pentru Landing Page */
+    .hero-container {
+        padding: 4rem 2rem;
+        max-width: 1200px;
+        margin: 0 auto;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        min-height: 80vh;
+    }
+    
+    .hero-text h1 {
+        font-size: 3.5rem;
+        font-weight: 700;
+        line-height: 1.2;
+        margin-bottom: 1.5rem;
+        color: #f8fafc;
+    }
+    
+    .hero-text p {
+        font-size: 1.125rem;
+        color: #cbd5e1;
+        margin-bottom: 2rem;
+        max-width: 500px;
+    }
+    
+    /* Butonul de Login stilizat custom */
+    .login-btn {
+        display: inline-block;
+        background-color: #4f46e5;
+        color: white !important;
+        font-weight: 600;
+        padding: 0.75rem 2rem;
+        border-radius: 9999px;
+        text-decoration: none;
+        transition: background-color 0.2s;
+        border: 1px solid rgba(255,255,255,0.1);
+    }
+    .login-btn:hover {
+        background-color: #4338ca;
+        border-color: white;
+    }
+    
+    /* Cardul din dreapta */
+    .preview-card {
+        background: rgba(15, 23, 42, 0.8);
+        border: 1px solid rgba(51, 65, 85, 0.5);
+        border-radius: 1.5rem;
+        padding: 2rem;
+        width: 100%;
+        max-width: 450px;
+        box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.3);
+    }
+
+    /* Ascunde link-urile implicite Streamlit din markdown */
+    a { text-decoration: none; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -24,7 +97,7 @@ try:
     CLIENT_SECRET = st.secrets["zoom"]["client_secret"]
     REDIRECT_URI = st.secrets["zoom"]["redirect_uri"]
 except:
-    st.error("Lipsesc secretele din Streamlit Cloud (Settings -> Secrets).")
+    st.warning("⚠️ Secretele lipsesc. Configurați .streamlit/secrets.toml sau Secrets în Cloud.")
     st.stop()
 
 # --- OAUTH ---
@@ -52,65 +125,65 @@ def get_attendance_report(token, meeting_id):
     res = requests.get(url, headers=headers, params=params)
     return (res.json().get('participants', []), None) if res.status_code == 200 else (None, res.text)
 
-# --- HTML DEFINITION (FARA NICIUN SPATIU LA INCEPUT) ---
-def get_landing_html(login_url):
-    # ATENTIE: Acest string este lipit de marginea stanga pentru a nu fi interpretat ca bloc de cod
-    return f"""
-<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<script src="https://cdn.tailwindcss.com"></script>
-<style>
-    body {{ font-family: sans-serif; margin: 0; }}
-    .gradient-bg {{ background: radial-gradient(circle at top left, #4f46e5, #0f172a 50%, #020617); }}
-    a {{ text-decoration: none !important; }} 
-</style>
-</head>
-<body class="bg-slate-950 text-slate-50">
-<div class="min-h-screen gradient-bg flex flex-col">
-    <header class="w-full border-b border-slate-800/60 bg-slate-950/50 backdrop-blur-md sticky top-0 z-50">
-    <div class="max-w-6xl mx-auto px-4 py-4 flex items-center justify-between">
-        <div class="flex items-center gap-2">
-        <div class="h-8 w-8 rounded bg-indigo-600 flex items-center justify-center font-bold text-white">ZA</div>
-        <span class="font-semibold text-slate-100">ZoomAttendance.io</span>
+# --- UI FUNCTIONS ---
+
+def show_landing_page():
+    login_url = get_login_url()
+    
+    # Folosim HTML simplu, fara tag-uri <html> sau <body>, doar structura div-urilor
+    # Link-ul are target="_self" care merge garantat
+    st.markdown(f"""
+    <nav style="display:flex; justify-content:space-between; align-items:center; padding: 1.5rem 2rem; border-bottom: 1px solid rgba(255,255,255,0.1);">
+        <div style="display:flex; align-items:center; gap:10px;">
+            <div style="background:#4f46e5; width:32px; height:32px; border-radius:8px; display:flex; align-items:center; justify-content:center; font-weight:bold;">ZA</div>
+            <span style="font-weight:600;">ZoomAttendance</span>
         </div>
-        <a href="{login_url}" target="_self" class="text-xs font-semibold px-4 py-2 rounded-full bg-indigo-600 hover:bg-indigo-500 text-white transition">
-            Sign in
-        </a>
-    </div>
-    </header>
-    <main class="flex-1 flex items-center">
-    <section class="max-w-6xl mx-auto px-4 py-20 grid lg:grid-cols-2 gap-10 items-center">
-        <div>
-        <h1 class="text-5xl font-bold text-white mb-6">Track Course Attendance<br/>with Zoom</h1>
-        <p class="text-slate-300 text-lg mb-8">Sync attendance automatically and get detailed reports.</p>
-        <a href="{login_url}" target="_self" class="inline-block px-8 py-4 rounded-full bg-indigo-600 hover:bg-indigo-500 text-white font-bold shadow-lg transition">
-            Connect Zoom & Start
-        </a>
+        <a href="{login_url}" target="_self" class="login-btn" style="padding: 0.5rem 1.5rem; font-size:0.9rem;">Sign in</a>
+    </nav>
+
+    <div class="hero-container">
+        <div class="hero-text">
+            <div style="display:inline-block; padding:5px 12px; background:rgba(79, 70, 229, 0.1); border:1px solid rgba(79, 70, 229, 0.3); border-radius:50px; color:#a5b4fc; font-size:0.8rem; margin-bottom:1rem; font-weight:600; text-transform:uppercase; letter-spacing:1px;">
+                Live Course Tools
+            </div>
+            <h1>Track Attendance<br>with Zoom Integration</h1>
+            <p>Stop worrying about spreadsheets. Automatically sync participant data, track duration, and export reports in seconds.</p>
+            
+            <div style="margin-top:2rem;">
+                <a href="{login_url}" target="_self" class="login-btn">
+                    Connect Zoom Account
+                </a>
+                <p style="margin-top:1rem; font-size:0.8rem; color:#64748b;">Safe & Secure OAuth 2.0 Connection</p>
+            </div>
         </div>
-        <div class="hidden lg:block bg-slate-900/80 border border-slate-700 rounded-2xl p-6">
-             <div class="text-slate-400 text-sm mb-4">Live Preview</div>
-             <div class="space-y-2">
-                <div class="flex justify-between text-xs p-2 bg-slate-800 rounded border border-slate-700 text-slate-200">
-                    <span>Alex Chen</span><span class="text-emerald-400">Present</span>
+
+        <!-- Partea vizuala (Card Dummy) -->
+        <div class="preview-card" style="display:none; @media (min-width: 1024px) { display:block; }">
+             <div style="display:flex; justify-content:space-between; margin-bottom:1.5rem;">
+                <span style="font-size:0.85rem; color:#94a3b8;">Live Session Preview</span>
+                <span style="font-size:0.8rem; color:#34d399;">● Sync Active</span>
+             </div>
+             <div style="background:rgba(30, 41, 59, 0.6); padding:10px; border-radius:8px; margin-bottom:10px; border:1px solid rgba(255,255,255,0.05); display:flex; justify-content:space-between; align-items:center;">
+                <div style="display:flex; align-items:center; gap:10px;">
+                    <div style="width:24px; height:24px; background:#475569; border-radius:50%;"></div>
+                    <span style="font-size:0.9rem;">Alex Chen</span>
                 </div>
-                <div class="flex justify-between text-xs p-2 bg-slate-800 rounded border border-slate-700 text-slate-200">
-                    <span>Maria Lopez</span><span class="text-amber-400">Late</span>
+                <span style="font-size:0.8rem; color:#34d399;">Present</span>
+             </div>
+             <div style="background:rgba(30, 41, 59, 0.6); padding:10px; border-radius:8px; border:1px solid rgba(255,255,255,0.05); display:flex; justify-content:space-between; align-items:center;">
+                <div style="display:flex; align-items:center; gap:10px;">
+                    <div style="width:24px; height:24px; background:#475569; border-radius:50%;"></div>
+                    <span style="font-size:0.9rem;">Maria Lopez</span>
                 </div>
+                <span style="font-size:0.8rem; color:#fbbf24;">Late (15m)</span>
              </div>
         </div>
-    </section>
-    </main>
-</div>
-</body>
-</html>
-"""
+    </div>
+    """, unsafe_allow_html=True)
 
-# --- MAIN ---
+# --- MAIN APP ---
 def main():
-    # 1. Auth Check
+    # 1. Auth Logic
     if "code" in st.query_params:
         auth_code = st.query_params["code"]
         token_data = exchange_code_for_token(auth_code)
@@ -121,37 +194,52 @@ def main():
     
     # 2. Display Logic
     if "access_token" not in st.session_state:
-        # Folosim st.markdown din nou, care permite click pe link-uri
-        login_url = get_login_url()
-        html_code = get_landing_html(login_url)
-        st.markdown(html_code, unsafe_allow_html=True)
+        show_landing_page()
     else:
-        # Dashboard Mode
-        st.markdown("""<style>.block-container {padding: 2rem 1rem !important;}</style>""", unsafe_allow_html=True)
+        # --- DASHBOARD INTERFACE ---
         
+        # Resetam CSS-ul de padding pentru dashboard ca sa putem folosi elementele native Streamlit corect
+        st.markdown("""
+        <style>
+            .block-container { padding: 3rem 1rem !important; max-width: 60rem !important; }
+            .hero-container { display: none; }
+        </style>
+        """, unsafe_allow_html=True)
+
         with st.sidebar:
             st.title("ZoomAttendance")
+            st.caption("Logged in via Zoom")
             if st.button("Logout"):
                 del st.session_state["access_token"]
                 st.rerun()
         
         st.title("📊 Attendance Dashboard")
-        meeting_id = st.text_input("Meeting ID")
+        st.markdown("Generate participant reports from past meetings.")
         
-        if st.button("Get Report") and meeting_id:
+        meeting_id = st.text_input("Enter Meeting ID (Past Session)")
+        
+        if st.button("Get Report", type="primary") and meeting_id:
             data, err = get_attendance_report(st.session_state["access_token"], meeting_id)
+            
             if data:
                 df = pd.DataFrame(data)
                 if 'user_email' in df.columns:
-                    summary = df.groupby('user_email').agg({'duration': 'sum', 'name': 'first'}).reset_index()
+                    summary = df.groupby('user_email').agg({
+                        'duration': 'sum', 
+                        'name': 'first'
+                    }).reset_index()
                     summary['minutes'] = (summary['duration']/60).round(1)
-                    st.metric("Participants", len(summary))
-                    st.dataframe(summary)
-                    st.download_button("Download CSV", summary.to_csv(index=False), f"report.csv")
+                    summary = summary.sort_values('minutes', ascending=False)
+                    
+                    c1, c2 = st.columns(2)
+                    c1.metric("Participants", len(summary))
+                    c2.metric("Avg Duration", f"{summary['minutes'].mean():.0f} min")
+                    
+                    st.dataframe(summary, use_container_width=True)
                 else:
-                    st.warning("No email data found.")
+                    st.warning("Data incomplete (missing emails). Check Zoom permissions.")
             elif err:
-                st.error(err)
+                st.error(f"Error: {err}")
 
 if __name__ == "__main__":
     main()
