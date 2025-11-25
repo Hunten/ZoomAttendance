@@ -4,12 +4,11 @@ import pandas as pd
 import base64
 import plotly.express as px
 from urllib.parse import urlencode
-import streamlit.components.v1 as components
 
 # --- CONFIGURATION ---
 st.set_page_config(page_title="Zoom Attendance Manager", page_icon="🎓", layout="wide")
 
-# Ascundem meniul standard Streamlit
+# Ascunde elementele standard Streamlit
 st.markdown("""
 <style>
     #MainMenu {visibility: hidden;}
@@ -53,20 +52,20 @@ def get_attendance_report(token, meeting_id):
     res = requests.get(url, headers=headers, params=params)
     return (res.json().get('participants', []), None) if res.status_code == 200 else (None, res.text)
 
-# --- LANDING PAGE ---
-def show_landing_page():
-    login_url = get_login_url()
-    
-    # MODIFICARE CRITICĂ: target="_top" forțează deschiderea în fereastra principală, nu în iframe
-    html_content = f"""<!DOCTYPE html>
+# --- HTML DEFINITION (FARA NICIUN SPATIU LA INCEPUT) ---
+def get_landing_html(login_url):
+    # ATENTIE: Acest string este lipit de marginea stanga pentru a nu fi interpretat ca bloc de cod
+    return f"""
+<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <script src="https://cdn.tailwindcss.com"></script>
 <style>
-    body {{ font-family: sans-serif; margin: 0; overflow-x: hidden; }}
+    body {{ font-family: sans-serif; margin: 0; }}
     .gradient-bg {{ background: radial-gradient(circle at top left, #4f46e5, #0f172a 50%, #020617); }}
+    a {{ text-decoration: none !important; }} 
 </style>
 </head>
 <body class="bg-slate-950 text-slate-50">
@@ -77,7 +76,7 @@ def show_landing_page():
         <div class="h-8 w-8 rounded bg-indigo-600 flex items-center justify-center font-bold text-white">ZA</div>
         <span class="font-semibold text-slate-100">ZoomAttendance.io</span>
         </div>
-        <a href="{login_url}" target="_top" class="text-xs font-semibold px-4 py-2 rounded-full bg-indigo-600 hover:bg-indigo-500 text-white transition decoration-transparent">
+        <a href="{login_url}" target="_self" class="text-xs font-semibold px-4 py-2 rounded-full bg-indigo-600 hover:bg-indigo-500 text-white transition">
             Sign in
         </a>
     </div>
@@ -87,7 +86,7 @@ def show_landing_page():
         <div>
         <h1 class="text-5xl font-bold text-white mb-6">Track Course Attendance<br/>with Zoom</h1>
         <p class="text-slate-300 text-lg mb-8">Sync attendance automatically and get detailed reports.</p>
-        <a href="{login_url}" target="_top" class="inline-block px-8 py-4 rounded-full bg-indigo-600 hover:bg-indigo-500 text-white font-bold shadow-lg transition decoration-transparent">
+        <a href="{login_url}" target="_self" class="inline-block px-8 py-4 rounded-full bg-indigo-600 hover:bg-indigo-500 text-white font-bold shadow-lg transition">
             Connect Zoom & Start
         </a>
         </div>
@@ -106,71 +105,53 @@ def show_landing_page():
     </main>
 </div>
 </body>
-</html>"""
-    
-    # Setăm înălțimea iframe-ului la 1000px pentru a acoperi ecranul
-    components.html(html_content, height=1000, scrolling=False)
+</html>
+"""
 
 # --- MAIN ---
 def main():
-    # 1. Auth Flow
+    # 1. Auth Check
     if "code" in st.query_params:
         auth_code = st.query_params["code"]
-        with st.spinner("Logging in..."):
-            token_data = exchange_code_for_token(auth_code)
-            if "access_token" in token_data:
-                st.session_state["access_token"] = token_data["access_token"]
-                st.query_params.clear()
-                st.rerun()
-            else:
-                st.error("Login failed. Please try again.")
+        token_data = exchange_code_for_token(auth_code)
+        if "access_token" in token_data:
+            st.session_state["access_token"] = token_data["access_token"]
+            st.query_params.clear()
+            st.rerun()
     
     # 2. Display Logic
     if "access_token" not in st.session_state:
-        show_landing_page()
+        # Folosim st.markdown din nou, care permite click pe link-uri
+        login_url = get_login_url()
+        html_code = get_landing_html(login_url)
+        st.markdown(html_code, unsafe_allow_html=True)
     else:
         # Dashboard Mode
         st.markdown("""<style>.block-container {padding: 2rem 1rem !important;}</style>""", unsafe_allow_html=True)
         
         with st.sidebar:
             st.title("ZoomAttendance")
-            st.success("✅ Connected")
             if st.button("Logout"):
                 del st.session_state["access_token"]
                 st.rerun()
         
         st.title("📊 Attendance Dashboard")
-        st.markdown("Enter a past meeting ID to generate a report.")
+        meeting_id = st.text_input("Meeting ID")
         
-        col1, col2 = st.columns([3,1])
-        with col1:
-            meeting_id = st.text_input("Meeting ID", placeholder="e.g. 1234567890")
-        with col2:
-            st.write("")
-            st.write("")
-            btn = st.button("Generate", type="primary", use_container_width=True)
-        
-        if btn and meeting_id:
+        if st.button("Get Report") and meeting_id:
             data, err = get_attendance_report(st.session_state["access_token"], meeting_id)
             if data:
                 df = pd.DataFrame(data)
-                if 'user_email' in df.columns and 'duration' in df.columns:
-                    summary = df.groupby(['user_email', 'name']).agg({'duration': 'sum'}).reset_index()
+                if 'user_email' in df.columns:
+                    summary = df.groupby('user_email').agg({'duration': 'sum', 'name': 'first'}).reset_index()
                     summary['minutes'] = (summary['duration']/60).round(1)
-                    summary = summary.sort_values('minutes', ascending=False)
-                    
-                    m1, m2 = st.columns(2)
-                    m1.metric("Total Students", len(summary))
-                    m2.metric("Avg Time", f"{summary['minutes'].mean():.0f} min")
-                    
-                    st.dataframe(summary, use_container_width=True)
-                    
-                    csv = summary.to_csv(index=False).encode('utf-8')
-                    st.download_button("📥 Download CSV", csv, f"report_{meeting_id}.csv", "text/csv")
+                    st.metric("Participants", len(summary))
+                    st.dataframe(summary)
+                    st.download_button("Download CSV", summary.to_csv(index=False), f"report.csv")
                 else:
-                    st.warning("Incomplete data (emails missing). Check Zoom plan.")
+                    st.warning("No email data found.")
             elif err:
-                st.error(f"Error: {err}")
+                st.error(err)
 
 if __name__ == "__main__":
     main()
