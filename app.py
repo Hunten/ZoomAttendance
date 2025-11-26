@@ -47,13 +47,32 @@ def exchange_code_for_token(auth_code):
         return {"error": "Connection failed"}
 
 def fetch_meeting_participants(token, meeting_id):
-    url = f"https://api.zoom.us/v2/report/meetings/{meeting_id}/participants"
+    # Curatam ID-ul de spatii
+    clean_id = str(meeting_id).replace(" ", "")
+    
     headers = {"Authorization": f"Bearer {token}"}
     params = {"page_size": 300}
-    res = requests.get(url, headers=headers, params=params)
+    
+    # Încercăm Endpoint-ul 1: Rapoarte (Cel mai bun pentru durată)
+    url_report = f"https://api.zoom.us/v2/report/meetings/{clean_id}/participants"
+    res = requests.get(url_report, headers=headers, params=params)
+    
     if res.status_code == 200:
-        return res.json().get('participants', [])
-    return None
+        return res.json().get('participants', []), None
+    
+    # Dacă eșuează Endpoint 1, încercăm Endpoint 2: Past Meetings (Alternativă)
+    # Uneori conturile Pro au acces aici chiar dacă nu au la Reports
+    url_past = f"https://api.zoom.us/v2/past_meetings/{clean_id}/participants"
+    res2 = requests.get(url_past, headers=headers, params=params)
+    
+    if res2.status_code == 200:
+        # Uniformizam datele (acest endpoint returneaza usor diferit)
+        return res2.json().get('participants', []), None
+        
+    # Dacă ambele eșuează, returnăm eroarea de la prima încercare pentru debug
+    error_msg = f"Zoom Error {res.status_code}: {res.json().get('message', 'Unknown error')}"
+    return None, error_msg
+
 
 # --- 3. CSS DARK THEME (Mov/Glass) ---
 st.markdown("""
@@ -267,27 +286,34 @@ def page_sessions():
             c3.metric("Total Hours", f"{total_h:.1f}h")
             
             # Butoane Actiune
+            # Butoane Actiune
             if c4.button("🔄 Sync Zoom", key=f"sync_{idx}"):
                 with st.spinner("Syncing..."):
                     token = st.session_state.get("access_token")
-                    data = fetch_meeting_participants(token, row['meeting_id'])
+                    # AICI AM MODIFICAT APELUL SA PRIMEASCA SI EROAREA
+                    data, error_msg = fetch_meeting_participants(token, row['meeting_id'])
+                    
                     if data:
                         df_p = pd.DataFrame(data)
-                        if 'user_email' in df_p.columns:
-                            # Update DB
-                            att_clean = pd.read_csv(ATTENDANCE_DB)
-                            att_clean = att_clean[att_clean['meeting_id'] != str(row['meeting_id'])]
+                        # Unii participanti nu au email daca nu sunt logati, ii pastram oricum pe baza numelui
+                        if 'user_email' not in df_p.columns:
+                            df_p['user_email'] = ''
                             
-                            new_d = df_p.groupby(['user_email', 'name'])['duration'].sum().reset_index()
-                            new_d['duration_minutes'] = (new_d['duration']/60).round(1)
-                            new_d['meeting_id'] = str(row['meeting_id'])
-                            new_d['sync_date'] = datetime.now().strftime("%Y-%m-%d")
-                            
-                            pd.concat([att_clean, new_d[['meeting_id','user_email','name','duration_minutes','sync_date']]]).to_csv(ATTENDANCE_DB, index=False)
-                            st.success("Done!")
-                            st.rerun()
+                        att_clean = pd.read_csv(ATTENDANCE_DB)
+                        att_clean = att_clean[att_clean['meeting_id'] != str(row['meeting_id'])]
+                        
+                        new_d = df_p.groupby(['user_email', 'name'])['duration'].sum().reset_index()
+                        new_d['duration_minutes'] = (new_d['duration']/60).round(1)
+                        new_d['meeting_id'] = str(row['meeting_id'])
+                        new_d['sync_date'] = datetime.now().strftime("%Y-%m-%d")
+                        
+                        pd.concat([att_clean, new_d[['meeting_id','user_email','name','duration_minutes','sync_date']]]).to_csv(ATTENDANCE_DB, index=False)
+                        st.success(f"Synced! Found {len(new_d)} participants.")
+                        st.rerun()
                     else:
-                        st.error("Check ID or Zoom Plan")
+                        # AICI AFISAM EROAREA REALA
+                        st.error(f"Failed: {error_msg}")
+
             
             st.divider()
 
