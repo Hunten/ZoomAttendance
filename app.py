@@ -51,20 +51,25 @@ def fetch_meeting_participants(token, meeting_id):
     headers = {"Authorization": f"Bearer {token}"}
     params = {"page_size": 300}
     
-    # Folosim DIRECT endpoint-ul basic/past_meetings pentru ca stim ca ai permisiunea asta
+    # Folosim EXCLUSIV endpoint-ul "Past Meetings"
+    # Acesta NU cere permisiuni de Report, ci doar de Meeting
     url = f"https://api.zoom.us/v2/past_meetings/{clean_id}/participants"
 
     res = requests.get(url, headers=headers, params=params)
     
     if res.status_code == 200:
         parts = res.json().get('participants', [])
-        # Adaugam durata default daca lipseste
+        # Acest endpoint nu returneaza intotdeauna 'duration'
+        # Asa ca punem o valoare default (60 min) daca lipseste
         for p in parts:
              if 'duration' not in p:
-                 p['duration'] = 0 
+                 p['duration'] = 60 * 60 
         return parts, None
         
-    return None, f"Error {res.status_code}: {res.text}"
+    # Daca si asta esueaza, e o problema de ID sau Token
+    error_msg = f"Zoom Error {res.status_code}: {res.json().get('message', 'Unknown error')}"
+    return None, error_msg
+
 
 
 
