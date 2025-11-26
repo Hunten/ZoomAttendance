@@ -51,35 +51,21 @@ def fetch_meeting_participants(token, meeting_id):
     headers = {"Authorization": f"Bearer {token}"}
     params = {"page_size": 300}
     
-    # Endpoint pentru conturi PAID (ofera durata)
-    url_report = f"https://api.zoom.us/v2/report/meetings/{clean_id}/participants"
-    
-    # Endpoint pentru conturi BASIC/FREE (ofera doar lista, fara durata exacta)
-    # Nota: Uneori Zoom cere permisiunea 'dashboard_meetings:read:admin' pentru metrics
-    # Dar cel mai sigur pentru Basic este 'past_meetings'
-    url_basic = f"https://api.zoom.us/v2/past_meetings/{clean_id}/participants"
+    # Folosim DIRECT endpoint-ul basic/past_meetings pentru ca stim ca ai permisiunea asta
+    url = f"https://api.zoom.us/v2/past_meetings/{clean_id}/participants"
 
-    # Incercam intai Report (poate a facut upgrade)
-    res = requests.get(url_report, headers=headers, params=params)
+    res = requests.get(url, headers=headers, params=params)
     
     if res.status_code == 200:
-        return res.json().get('participants', []), None
+        parts = res.json().get('participants', [])
+        # Adaugam durata default daca lipseste
+        for p in parts:
+             if 'duration' not in p:
+                 p['duration'] = 0 
+        return parts, None
         
-    # Daca da eroarea de "Paid account only" (400), incercam varianta Basic
-    if res.status_code == 400 and "Paid" in res.text:
-        res_basic = requests.get(url_basic, headers=headers, params=params)
-        if res_basic.status_code == 200:
-            parts = res_basic.json().get('participants', [])
-            # Endpoint-ul Basic nu returneaza 'duration' intotdeauna, asa ca o simulam
-            # Sau setam o valoare default daca lipseste
-            for p in parts:
-                if 'duration' not in p:
-                    p['duration'] = 60 * 60 # Punem default 60 minute daca nu stim cat a stat
-            return parts, None
-        else:
-            return None, f"Basic API Error {res_basic.status_code}: {res_basic.text}"
+    return None, f"Error {res.status_code}: {res.text}"
 
-    return None, f"Zoom Error {res.status_code}: {res.text}"
 
 
 
