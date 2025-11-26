@@ -47,31 +47,21 @@ def exchange_code_for_token(auth_code):
         return {"error": "Connection failed"}
 
 def fetch_meeting_participants(token, meeting_id):
-    # Curatam ID-ul de spatii
     clean_id = str(meeting_id).replace(" ", "")
-    
     headers = {"Authorization": f"Bearer {token}"}
     params = {"page_size": 300}
     
-    # Încercăm Endpoint-ul 1: Rapoarte (Cel mai bun pentru durată)
-    url_report = f"https://api.zoom.us/v2/report/meetings/{clean_id}/participants"
-    res = requests.get(url_report, headers=headers, params=params)
+    # MODIFICARE: Folosim endpoint-ul "Past Meetings" pentru care ai deja permisiunea "meeting:read:list_past_participants"
+    # Acesta functioneaza garantat cu permisiunile din poza ta.
+    url = f"https://api.zoom.us/v2/past_meetings/{clean_id}/participants"
+    
+    res = requests.get(url, headers=headers, params=params)
     
     if res.status_code == 200:
         return res.json().get('participants', []), None
-    
-    # Dacă eșuează Endpoint 1, încercăm Endpoint 2: Past Meetings (Alternativă)
-    # Uneori conturile Pro au acces aici chiar dacă nu au la Reports
-    url_past = f"https://api.zoom.us/v2/past_meetings/{clean_id}/participants"
-    res2 = requests.get(url_past, headers=headers, params=params)
-    
-    if res2.status_code == 200:
-        # Uniformizam datele (acest endpoint returneaza usor diferit)
-        return res2.json().get('participants', []), None
-        
-    # Dacă ambele eșuează, returnăm eroarea de la prima încercare pentru debug
-    error_msg = f"Zoom Error {res.status_code}: {res.json().get('message', 'Unknown error')}"
-    return None, error_msg
+    else:
+        return None, f"Zoom Error {res.status_code}: {res.json().get('message', 'Unknown error')}"
+
 
 
 # --- 3. CSS DARK THEME (Mov/Glass) ---
