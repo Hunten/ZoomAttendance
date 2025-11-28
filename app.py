@@ -71,7 +71,8 @@ def fetch_meeting_participants(token, meeting_id):
 def show_landing_page():
     login_url = get_login_url()
     
-    # We inject the HTML. Note: We replaced the href="#" with the actual login_url for the buttons
+    # We use target="_top" to force the link to open in the main window, breaking out of the iframe
+    # This fixes "refused to connect"
     html_code = f"""
     <!DOCTYPE html>
     <html lang="en">
@@ -105,10 +106,10 @@ def show_landing_page():
               <a href="#faq" class="hover:text-white transition-colors">FAQ</a>
             </nav>
             <div class="flex items-center gap-3">
-              <a href="{login_url}" target="_self" class="hidden sm:inline-flex text-xs font-medium px-3 py-1.5 rounded-full border border-slate-600/80 text-slate-200 hover:bg-slate-800/70 transition">
+              <a href="{login_url}" target="_top" class="hidden sm:inline-flex text-xs font-medium px-3 py-1.5 rounded-full border border-slate-600/80 text-slate-200 hover:bg-slate-800/70 transition">
                 Sign in
               </a>
-              <a href="{login_url}" target="_self" class="text-xs font-semibold px-4 py-2 rounded-full bg-indigo-500 hover:bg-indigo-400 text-white transition">
+              <a href="{login_url}" target="_top" class="text-xs font-semibold px-4 py-2 rounded-full bg-indigo-500 hover:bg-indigo-400 text-white transition">
                 Start free trial
               </a>
             </div>
@@ -137,7 +138,7 @@ def show_landing_page():
               </p>
 
               <div class="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 mb-6">
-                <a href="{login_url}" target="_self" class="inline-flex justify-center items-center px-5 py-2.5 rounded-full bg-indigo-500 hover:bg-indigo-400 text-sm font-semibold text-white transition">
+                <a href="{login_url}" target="_top" class="inline-flex justify-center items-center px-5 py-2.5 rounded-full bg-indigo-500 hover:bg-indigo-400 text-sm font-semibold text-white transition">
                   Connect Zoom &amp; get started
                 </a>
                 <button class="inline-flex justify-center items-center px-5 py-2.5 rounded-full border border-slate-700 text-sm font-medium text-slate-200 hover:bg-slate-900/60 transition">
@@ -230,7 +231,6 @@ def show_landing_page():
     </body>
     </html>
     """
-    # Render the HTML full screen
     components.html(html_code, height=1200, scrolling=True)
 
 # --- 4. APP STYLING & LOGIC (Logged In) ---
